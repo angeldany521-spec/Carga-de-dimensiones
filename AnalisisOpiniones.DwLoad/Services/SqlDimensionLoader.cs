@@ -13,7 +13,6 @@ public abstract class SqlDimensionLoader : IDimensionLoader
 
     public abstract string Nombre { get; }
     protected abstract string TablaDestino { get; }
-    protected abstract string SqlCarga { get; }
 
     protected SqlDimensionLoader(string sourceConnection, string dwConnection, ILogger logger)
     {
@@ -57,15 +56,7 @@ public abstract class SqlDimensionLoader : IDimensionLoader
         }
     }
 
-    protected virtual async Task<int> EjecutarCargaAsync(CancellationToken ct)
-    {
-        await using var cn = new SqlConnection(DwConnection);
-        await cn.OpenAsync(ct);
-        await using var cmd = new SqlCommand(SqlCarga, cn);
-        cmd.CommandTimeout = 120;
-        var result = await cmd.ExecuteNonQueryAsync(ct);
-        return result < 0 ? 0 : result;
-    }
+    protected abstract Task<int> EjecutarCargaAsync(CancellationToken ct);
 
     protected async Task<int> ContarTablaAsync(CancellationToken ct)
     {
@@ -76,13 +67,27 @@ public abstract class SqlDimensionLoader : IDimensionLoader
         return Convert.ToInt32(obj);
     }
 
-    protected async Task<int> EjecutarEnDwAsync(string sql, CancellationToken ct)
+    protected async Task<HashSet<string>> ObtenerClavesExistentesAsync(string columna, CancellationToken ct)
     {
+        var claves = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         await using var cn = new SqlConnection(DwConnection);
         await cn.OpenAsync(ct);
-        await using var cmd = new SqlCommand(sql, cn);
-        cmd.CommandTimeout = 120;
-        var result = await cmd.ExecuteNonQueryAsync(ct);
-        return result < 0 ? 0 : result;
+        await using var cmd = new SqlCommand($"SELECT CAST({columna} AS NVARCHAR(100)) FROM dbo.{TablaDestino}", cn);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            claves.Add(reader.GetString(0));
+        return claves;
+    }
+
+    protected async Task<HashSet<int>> ObtenerClavesIntExistentesAsync(string columna, CancellationToken ct)
+    {
+        var claves = new HashSet<int>();
+        await using var cn = new SqlConnection(DwConnection);
+        await cn.OpenAsync(ct);
+        await using var cmd = new SqlCommand($"SELECT {columna} FROM dbo.{TablaDestino}", cn);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            claves.Add(reader.GetInt32(0));
+        return claves;
     }
 }
